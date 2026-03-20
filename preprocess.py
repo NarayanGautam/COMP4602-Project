@@ -27,13 +27,27 @@ def transformData(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def count_names(df: pd.DataFrame) -> pd.DataFrame:
+    # Create normalized (order-independent) pairs
+    pairs = df.apply(
+        lambda row: tuple(sorted([row["club_1"], row["club_2"]])),
+        axis=1
+    )
+
+    # Count occurrences of each pair
     counts = (
-        pd.concat([df["club_1"], df["club_2"]])  # combine both columns
-        .value_counts()
+        pairs.value_counts()
         .reset_index()
     )
 
-    counts.columns = ["name", "weight"]
+    # Split tuple into two columns
+    counts[["club_1", "club_2"]] = pd.DataFrame(counts["index"].tolist(), index=counts.index)
+
+    # Rename columns
+    counts = counts.drop(columns=["index"])
+    counts.columns = ["count", "club_1", "club_2"]
+
+    # Reorder columns nicely
+    counts = counts[["club_1", "club_2", "count"]]
 
     return counts
 
