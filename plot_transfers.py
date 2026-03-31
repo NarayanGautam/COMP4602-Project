@@ -40,6 +40,23 @@ print("\nTop 20 nodes by in-degree (most transfers in):")
 print(sorted(in_degrees.items(), key=lambda x: x[1], reverse=True)[:20])
 
 # -------------------------
+# 3. HUB / AUTHORITY ANALYSIS
+# -------------------------
+
+# Compute HITS scores
+hubs, authorities = nx.hits(G, max_iter=1000, normalized=True)
+
+# Sort and print top 20 hubs (rounded)
+print("\nTop 20 HUBS (clubs that send players to important clubs):")
+top_hubs = sorted(hubs.items(), key=lambda x: x[1], reverse=True)[:20]
+print([(club, round(score, 4)) for club, score in top_hubs])
+
+# Sort and print top 20 authorities (rounded)
+print("\nTop 20 AUTHORITIES (clubs that receive players from important clubs):")
+top_auth = sorted(authorities.items(), key=lambda x: x[1], reverse=True)[:20]
+print([(club, round(score, 4)) for club, score in top_auth])
+
+# -------------------------
 # 4. CENTRALITY / BETWEENNESS
 # -------------------------
 
@@ -57,7 +74,7 @@ print(sorted(betweenness.items(), key=lambda x: x[1], reverse=True)[:20])
 # -------------------------
 # 6. VISUALIZATION (Top 20 nodes by total degree)
 # -------------------------
-top_n = 20
+top_n = 25
 top_nodes = sorted(total_degrees, key=total_degrees.get, reverse=True)[:top_n]
 H = G.subgraph(top_nodes).copy()
 
@@ -76,6 +93,6 @@ plt.figure(figsize=(12, 10))
 nx.draw_networkx_nodes(H, pos, node_size=node_sizes, alpha=0.9)
 nx.draw_networkx_edges(H, pos, width=edge_widths, edge_color="black", alpha=0.7, arrows=True, arrowsize=15, connectionstyle="arc3,rad=0.0")
 nx.draw_networkx_labels(H, pos, font_size=8)
-plt.title("Top 20 Club Directed Network (Node size = total degree, Edge width = transfer volume)")
+plt.title("Top 25 Club Directed Network (Node size = total degree, Edge width = transfer volume)")
 plt.axis("off")
 plt.show()
