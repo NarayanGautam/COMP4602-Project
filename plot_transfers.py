@@ -72,27 +72,143 @@ print(sorted(betweenness.items(), key=lambda x: x[1], reverse=True)[:20])
 
 
 # -------------------------
-# 6. VISUALIZATION (Top 20 nodes by total degree)
+# 6. VISUALIZATION HELPERS
 # -------------------------
-top_n = 25
-top_nodes = sorted(total_degrees, key=total_degrees.get, reverse=True)[:top_n]
-H = G.subgraph(top_nodes).copy()
+def plot_top_subgraph_by_metric(
+    graph,
+    metric_scores,
+    metric_name,
+    output_file,
+    top_n=20,
+    min_node_size=500,
+    size_scale=1.0,
+    cmap=plt.cm.YlGnBu,
+    edge_color="#2F3E46",
+):
+    # Select top nodes using full-graph metric values.
+    top_nodes = sorted(metric_scores, key=metric_scores.get, reverse=True)[:top_n]
+    subgraph = graph.subgraph(top_nodes).copy()
 
-# Node size based on total degree from full graph
-node_sizes = [total_degrees[n] * 25 for n in H.nodes()]
+    # Keep sizing based on full graph scores (not subgraph recomputation).
+    node_sizes = [max(metric_scores[n] * size_scale, min_node_size) for n in subgraph.nodes()]
 
-# Edge widths based on weight
-edge_weights = [d["weight"] for _, _, d in H.edges(data=True)]
-max_w = max(edge_weights)
-edge_widths = [(w / max_w) * 5 for w in edge_weights]
+    edge_weights = [d["weight"] for _, _, d in subgraph.edges(data=True)]
+    if edge_weights:
+        max_w = max(edge_weights)
+        edge_widths = [(w / max_w) * 5 for w in edge_weights]
+    else:
+        edge_widths = []
 
-# Layout
-pos = nx.spring_layout(H, k=5, seed=42)
+    pos = nx.spring_layout(subgraph, k=2.5, seed=42)
 
-plt.figure(figsize=(12, 10))
-nx.draw_networkx_nodes(H, pos, node_size=node_sizes, alpha=0.9)
-nx.draw_networkx_edges(H, pos, width=edge_widths, edge_color="black", alpha=0.7, arrows=True, arrowsize=15, connectionstyle="arc3,rad=0.0")
-nx.draw_networkx_labels(H, pos, font_size=8)
-plt.title("Top 25 Club Directed Network (Node size = total degree, Edge width = transfer volume)")
-plt.axis("off")
-plt.show()
+    fig, ax = plt.subplots(figsize=(14, 11))
+    nx.draw_networkx_nodes(
+        subgraph,
+        pos,
+        ax=ax,
+        node_size=node_sizes,
+        node_color=[metric_scores[n] for n in subgraph.nodes()],
+        cmap=cmap,
+        alpha=0.9,
+    )
+    nx.draw_networkx_edges(
+        subgraph,
+        pos,
+        ax=ax,
+        width=edge_widths,
+        edge_color=edge_color,
+        alpha=0.45,
+        arrows=True,
+        arrowsize=15,
+        connectionstyle="arc3,rad=0.08",
+    )
+    nx.draw_networkx_labels(subgraph, pos, font_size=8, ax=ax)
+
+    sm = plt.cm.ScalarMappable(
+        cmap=cmap,
+        norm=plt.Normalize(
+            vmin=min(metric_scores[n] for n in subgraph.nodes()),
+            vmax=max(metric_scores[n] for n in subgraph.nodes()),
+        ),
+    )
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, shrink=0.75)
+    cbar.set_label(metric_name)
+
+    ax.set_title(
+        f"Top {top_n} Clubs by {metric_name} (Full-Graph Scores Preserved)",
+        fontsize=13,
+    )
+    ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    print(
+        f"Saved {output_file} with {subgraph.number_of_nodes()} nodes and "
+        f"{subgraph.number_of_edges()} edges"
+    )
+
+
+# -------------------------
+# 7. VISUALIZATION: TOP 20 BY TOTAL DEGREE
+# -------------------------
+plot_top_subgraph_by_metric(
+    graph=G,
+    metric_scores=total_degrees,
+    metric_name="Total Degree",
+    output_file="top20_degree_subgraph.png",
+    top_n=20,
+    min_node_size=450,
+    size_scale=35,
+    cmap=plt.cm.YlOrRd,
+    edge_color="#7A1F1F",
+)
+
+
+# -------------------------
+# 8. VISUALIZATION: TOP 20 BY HUB SCORE
+# -------------------------
+plot_top_subgraph_by_metric(
+    graph=G,
+    metric_scores=hubs,
+    metric_name="Hub Score",
+    output_file="top20_hub_subgraph.png",
+    top_n=20,
+    min_node_size=500,
+    size_scale=150000,
+    cmap=plt.cm.YlOrRd,
+    edge_color="#1B4332",
+)
+
+
+# -------------------------
+# 9. VISUALIZATION: TOP 20 BY AUTHORITY SCORE
+# -------------------------
+plot_top_subgraph_by_metric(
+    graph=G,
+    metric_scores=authorities,
+    metric_name="Authority Score",
+    output_file="top20_authority_subgraph.png",
+    top_n=20,
+    min_node_size=500,
+    size_scale=150000,
+    cmap=plt.cm.YlOrRd,
+    edge_color="#3D405B",
+)
+
+
+# -------------------------
+# 10. VISUALIZATION: TOP 20 BY BETWEENNESS
+# -------------------------
+plot_top_subgraph_by_metric(
+    graph=G,
+    metric_scores=betweenness,
+    metric_name="Betweenness Centrality",
+    output_file="top20_betweenness_subgraph.png",
+    top_n=20,
+    min_node_size=500,
+    size_scale=200000,
+    cmap=plt.cm.YlOrRd,
+    edge_color="#7A1F1F",
+)
