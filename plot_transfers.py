@@ -5,11 +5,34 @@ import matplotlib.pyplot as plt
 
 df = pd.read_csv("club_weights.csv")
 
-# Remove rows where either club contains "U18"
-df = df[
-    ~df["club_1"].str.contains("U18") &
-    ~df["club_2"].str.contains("U18")
-]
+# Remove non-club entities and youth teams
+invalid_names = ["U18", "U21", "U23", "Without Club", "Retired", "Career break", "Unknown"]
+for name in invalid_names:
+    df = df[
+        ~df["club_1"].str.contains(name, case=False, na=False) &
+        ~df["club_2"].str.contains(name, case=False, na=False)
+    ]
+
+# Fix duplicate naming conventions (Kaggle dataset mixing formal/casual names)
+normalization_map = {
+    "Arsenal": "Arsenal FC",
+    "Chelsea": "Chelsea FC",
+    "Everton": "Everton FC",
+    "Liverpool": "Liverpool FC",
+    "Newcastle": "Newcastle United",
+    "Sunderland": "Sunderland AFC",
+    "Tottenham": "Tottenham Hotspur",
+    "Man City": "Manchester City",
+    "Man Utd": "Manchester United",
+    "West Ham": "West Ham United",
+    "Birmingham": "Birmingham City",
+    "Portsmouth": "Portsmouth FC",
+    "QPR": "Queens Park Rangers",
+    "Sheff Utd": "Sheffield United",
+    "Sheff Wed": "Sheffield Wednesday"
+}
+df['club_1'] = df['club_1'].replace(normalization_map)
+df['club_2'] = df['club_2'].replace(normalization_map)
 
 G = nx.DiGraph()
 
@@ -18,7 +41,10 @@ for _, row in df.iterrows():
     club2 = row["club_2"]
     weight = row["count"]
     
-    G.add_edge(club1, club2, weight=weight)
+    if G.has_edge(club1, club2):
+        G[club1][club2]['weight'] += weight
+    else:
+        G.add_edge(club1, club2, weight=weight)
 
 print("Number of nodes:", G.number_of_nodes())
 print("Number of edges:", G.number_of_edges())
@@ -65,13 +91,57 @@ print("\nTop 20 nodes by betweenness:")
 print(sorted(betweenness.items(), key=lambda x: x[1], reverse=True)[:20])
 
 # -------------------------
-# 5. HETEROPHILY / ASSORTATIVITY
+# 5. COMMUNITY / HOMOPHILY DETECTION (LOUVAIN)
 # -------------------------
-
-
-
+import networkx.algorithms.community as nx_comm
+G_un = G.to_undirected()
+louvain_comms = nx_comm.louvain_communities(G_un, weight='weight', seed=42)
+print(f"\nFound {len(louvain_comms)} communities using Louvain algorithm.")
+comms_sorted = sorted(louvain_comms, key=len, reverse=True)
+for i, comm in enumerate(comms_sorted[:5]):
+    print(f"Community {i+1} ({len(comm)} clubs):")
+    comm_clubs = sorted(list(comm), key=lambda x: total_degrees.get(x, 0), reverse=True)
+    print("  Top members:", comm_clubs[:10])
 
 # -------------------------
+# 5.1. STRONGLY CONNECTED COMPONENTS
+# -------------------------
+scc = list(nx.strongly_connected_components(G))
+scc_sorted = sorted(scc, key=len, reverse=True)
+print("\nLargest Strongly Connected Components (Closed trading circuits):")
+for i, comp in enumerate(scc_sorted[:3]):
+    if len(comp) > 1:
+        comp_clubs = sorted(list(comp), key=lambda x: total_degrees.get(x, 0), reverse=True)
+        print(f"SCC {i+1} ({len(comp)} clubs) - Top members:", comp_clubs[:10])
+
+# -------------------------
+# 5.2. RIVALRY WEIGHTS
+# -------------------------
+rivalries = [
+    ("Arsenal FC", "Tottenham Hotspur"),
+    ("Arsenal FC", "Chelsea FC"),
+    ("Arsenal FC", "Manchester United"),
+    ("Arsenal FC", "Liverpool FC"),
+    ("Arsenal FC", "Manchester City"),
+    ("Manchester United", "Manchester City"),
+    ("Manchester United", "Liverpool FC"),
+    ("Manchester United", "Chelsea FC"),
+    ("Liverpool FC", "Everton FC"),
+    ("Liverpool FC", "Manchester City"),
+    ("Liverpool FC", "Chelsea FC"),
+    ("Chelsea FC", "Manchester City"),
+    ("Newcastle United", "Sunderland AFC")
+]
+
+print("\nRivalry Transfer Counts (Direct Trading):")
+for c1, c2 in rivalries:
+    # Adding a helper to fetch edges even if the exact string differs slightly
+    # But using the exact name is best based on our previous database inspection
+    w1 = G[c1][c2]["weight"] if G.has_edge(c1, c2) else 0
+    w2 = G[c2][c1]["weight"] if G.has_edge(c2, c1) else 0
+    print(f"  {c1} -> {c2}: {int(w1)} transfers")
+    print(f"  {c2} -> {c1}: {int(w2)} transfers")
+    print(f"  Total {c1} <-> {c2} trades: {int(w1 + w2)}\n")# -------------------------
 # 6. VISUALIZATION HELPERS
 # -------------------------
 def plot_top_subgraph_by_metric(
@@ -212,3 +282,111 @@ plot_top_subgraph_by_metric(
     cmap=plt.cm.YlOrRd,
     edge_color="#7A1F1F",
 )
+
+# -------------------------
+# 11. PEARSON CORRELATION (FINANCIAL POWER VS DEGREE AUTHORITY)
+# -------------------------
+import scipy.stats as stats
+
+# Approximate 2022 Transfermarkt squad values in millions of Euros
+financial_values = {
+    "Manchester City": 1050,
+    "Chelsea FC": 850,
+    "Liverpool FC": 860,
+    "Manchester United": 790,
+    "Tottenham Hotspur": 580,
+    "Arsenal FC": 560,
+    "Aston Villa": 450,
+    "Everton FC": 400,
+    "Newcastle United": 380,
+    "West Ham United": 350,
+    "Southampton FC": 250,
+    "Crystal Palace": 260,
+    "Sunderland AFC": 40,
+    "Stoke City": 45,
+    "Birmingham City": 35,
+    "Hull City": 40,
+    "Queens Park Rangers": 30,
+    "Portsmouth FC": 15,
+    "Sheffield United": 120,
+    "Wolverhampton Wanderers": 320
+}
+
+# Correlate wealth with different graph metrics
+degrees_list = []
+hubs_list = []
+auth_list = []
+between_list = []
+wealth_list = []
+
+for club, wealth in financial_values.items():
+    if club in total_degrees:
+        wealth_list.append(wealth)
+        degrees_list.append(total_degrees[club])
+        hubs_list.append(hubs[club])
+        auth_list.append(authorities[club])
+        between_list.append(betweenness[club])
+
+print("\n--- Pearson Correlations: Financial Power vs Graph Metrics ---")
+print(f"Matched {len(wealth_list)} top clubs for the correlation tests.")
+
+if len(wealth_list) > 2:
+    r_deg, p_deg = stats.pearsonr(wealth_list, degrees_list)
+    r_hub, p_hub = stats.pearsonr(wealth_list, hubs_list)
+    r_auth, p_auth = stats.pearsonr(wealth_list, auth_list)
+    r_btw, p_btw = stats.pearsonr(wealth_list, between_list)
+    
+    print(f"\n1. Wealth vs Total Connectivity: r = {r_deg:.4f} (p-value = {p_deg:.4e})")
+    print(f"2. Wealth vs Hub Score (Selling Power): r = {r_hub:.4f} (p-value = {p_hub:.4e})")
+    print(f"3. Wealth vs Authority Score (Buying Power): r = {r_auth:.4f} (p-value = {p_auth:.4e})")
+    print(f"4. Wealth vs Betweenness Centrality (Broker/Bridge): r = {r_btw:.4f} (p-value = {p_btw:.4e})")
+
+# -------------------------
+# 12. PEARSON CORRELATION (ACADEMY OUTPUT VS HUB/BETWEENNESS SCORES)
+# -------------------------
+print("\n--- Pearson Correlation: Academy Output vs Hub/Betweenness Score ---")
+# To compute this, we use the raw un-filtered dataset to count the number of 
+# transfers coming OUT of a club's U18/U21/U23/Reserve branches to any other club.
+raw_df = pd.read_csv("club_weights.csv")
+
+youth_prefixes = {
+    "Manchester City": ["Man City U18", "Man City U21", "Man City U23", "Man City Res."],
+    "Chelsea FC": ["Chelsea U18", "Chelsea U21", "Chelsea U23", "Chelsea Res."],
+    "Liverpool FC": ["Liverpool U18", "Liverpool U21", "Liverpool U23", "Liverpool Res."],
+    "Manchester United": ["Man Utd U18", "Man Utd U21", "Man Utd U23", "Man Utd Res."],
+    "Tottenham Hotspur": ["Spurs U18", "Spurs U21", "Spurs U23", "Spurs Res.", "Tottenham U18", "Tottenham U21", "Tottenham U23", "Tottenham Res."],
+    "Arsenal FC": ["Arsenal U18", "Arsenal U21", "Arsenal U23", "Arsenal Res."],
+    "Aston Villa": ["Aston Villa U18", "Aston Villa U21", "Aston Villa U23", "Aston Villa Res."],
+    "Everton FC": ["Everton U18", "Everton U21", "Everton U23", "Everton Res."],
+    "Newcastle United": ["Newcastle U18", "Newcastle U21", "Newcastle U23", "Newcastle Res."],
+    "West Ham United": ["West Ham U18", "West Ham U21", "West Ham U23", "West Ham Res."],
+    "Southampton FC": ["Southampton U18", "Southampton U21", "Southampton U23", "Southampton Res."],
+    "Crystal Palace": ["Palace U18", "Palace U21", "Palace U23", "Palace Res.", "Crystal Palace U18"],
+    "Sunderland AFC": ["Sunderland U18", "Sunderland U21", "Sunderland U23", "Sunderland Res."],
+    "Stoke City": ["Stoke U18", "Stoke U21", "Stoke U23", "Stoke Res."],
+    "Birmingham City": ["Birmingham U18", "Birmingham U21", "Birmingham U23", "Birmingham Res."],
+    "Hull City": ["Hull U18", "Hull U21", "Hull U23", "Hull Res."],
+    "Queens Park Rangers": ["QPR U18", "QPR U21", "QPR U23", "QPR Res."],
+    "Portsmouth FC": ["Portsmouth U18", "Portsmouth U21", "Portsmouth U23", "Portsmouth Res."],
+    "Sheffield United": ["Sheff Utd U18", "Sheff Utd U21", "Sheff Utd U23", "Sheff Utd Res."],
+    "Wolverhampton Wanderers": ["Wolves U18", "Wolves U21", "Wolves U23", "Wolves Res."]
+}
+
+academy_output = []
+hub_scores_for_academy = []
+between_scores_for_academy = []
+
+for club, prefixes in youth_prefixes.items():
+    if club in hubs:
+        total_youth_out = raw_df[raw_df['club_1'].isin(prefixes)]['count'].sum()
+        
+        academy_output.append(total_youth_out)
+        hub_scores_for_academy.append(hubs[club])
+        between_scores_for_academy.append(betweenness[club])
+
+if len(academy_output) > 2:
+    r_acad_hub, p_acad_hub = stats.pearsonr(academy_output, hub_scores_for_academy)
+    r_acad_btw, p_acad_btw = stats.pearsonr(academy_output, between_scores_for_academy)
+    print(f"Matched {len(academy_output)} clubs for Academy Output computation.")
+    print(f"Academy Output vs Hub Score (Selling Power): r = {r_acad_hub:.4f} (p-value = {p_acad_hub:.4e})")
+    print(f"Academy Output vs Betweenness Centrality (Broker): r = {r_acad_btw:.4f} (p-value = {p_acad_btw:.4e})")
