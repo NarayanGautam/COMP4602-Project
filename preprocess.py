@@ -27,24 +27,18 @@ def transformData(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def count_names(df: pd.DataFrame) -> pd.DataFrame:
-    # Create normalized (order-independent) pairs
-    pairs = df.apply(
-        lambda row: tuple(sorted([row["club_1"], row["club_2"]])),
-        axis=1
-    )
+    # Determine seller and buyer for directed edges
+    df["seller"] = np.where(df["direction"] == "in", df["club_2"], df["club_1"])
+    df["buyer"] = np.where(df["direction"] == "in", df["club_1"], df["club_2"])
+    
+    # Drop duplicates to prevent double-counting if both clubs reported the transfer
+    df_unique = df.drop_duplicates(subset=["player_name", "seller", "buyer"])
 
-    # Count occurrences of each pair
-    counts = (
-        pairs.value_counts()
-        .reset_index()
-    )
-
-    # Split tuple into two columns
-    counts[["club_1", "club_2"]] = pd.DataFrame(counts["index"].tolist(), index=counts.index)
-
-    # Rename columns
-    counts = counts.drop(columns=["index"])
-    counts.columns = ["count", "club_1", "club_2"]
+    # Group by seller and buyer to get the frequency of transfers
+    counts = df_unique.groupby(["seller", "buyer"]).size().reset_index(name="count")
+    
+    # Rename for output compatibility
+    counts = counts.rename(columns={"seller": "club_1", "buyer": "club_2"})
 
     # Reorder columns nicely
     counts = counts[["club_1", "club_2", "count"]]
@@ -52,9 +46,8 @@ def count_names(df: pd.DataFrame) -> pd.DataFrame:
     return counts
 
 def main():
-    base_dir = Path(__file__).resolve().parent.parent
-
-    csv_path = base_dir / "comp4602finalproject" / "data" / "premier-league.csv"
+    base_dir = Path(__file__).resolve().parent
+    csv_path = base_dir / "data" / "premier-league.csv"
 
     df = transformData(pd.read_csv(csv_path))
 
